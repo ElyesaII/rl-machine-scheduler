@@ -72,7 +72,22 @@ export class QLearningScheduler {
       if (nextOpIndex < product.operations.length) {
         const operation = product.operations[nextOpIndex];
         
-        // Check if machine is available
+        // CONSTRAINT 1: Check if previous operation of the same product is completed
+        if (nextOpIndex > 0) {
+          const previousOp = product.operations[nextOpIndex - 1];
+          const previousOpSchedules = state.machineSchedules.get(previousOp.machineId) || [];
+          const previousOpSchedule = previousOpSchedules.find(
+            s => s.operation.productId === product.id && 
+                 s.operation.operationIndex === nextOpIndex - 1
+          );
+          
+          // Previous operation must be completed before current time
+          if (!previousOpSchedule || previousOpSchedule.endTime > state.currentTime) {
+            continue; // Skip this operation, previous not completed yet
+          }
+        }
+        
+        // CONSTRAINT 2: Check if machine is available at current time
         const machineSchedule = state.machineSchedules.get(operation.machineId) || [];
         const machineAvailableTime = machineSchedule.length > 0
           ? Math.max(...machineSchedule.map(s => s.endTime))
