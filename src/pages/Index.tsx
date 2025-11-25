@@ -3,6 +3,7 @@ import { ProblemSetup } from "@/components/ProblemSetup";
 import { GanttChart } from "@/components/GanttChart";
 import { QTableVisualization } from "@/components/QTableVisualization";
 import { TrainingControls } from "@/components/TrainingControls";
+import { MakespanChart } from "@/components/MakespanChart";
 import { Product, QLearningScheduler, ScheduleState } from "@/lib/qlearning";
 import { toast } from "sonner";
 import { Factory } from "lucide-react";
@@ -17,6 +18,7 @@ const Index = () => {
   const [currentSchedule, setCurrentSchedule] = useState<ScheduleState | null>(null);
   const [qTableEntries, setQTableEntries] = useState<any[]>([]);
   const [isTraining, setIsTraining] = useState(false);
+  const [makespanHistory, setMakespanHistory] = useState<{ episode: number; makespan: number }[]>([]);
   const trainingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [learningRate, setLearningRate] = useState(0.1);
@@ -39,6 +41,7 @@ const Index = () => {
     setBestMakespan(0);
     setCurrentSchedule(null);
     setQTableEntries([]);
+    setMakespanHistory([]);
     toast.success("Configuration chargée avec succès");
   };
 
@@ -48,7 +51,11 @@ const Index = () => {
     const result = scheduler.trainEpisode();
     const makespan = scheduler.getMakespan(result.finalState);
     
-    setEpisode(prev => prev + 1);
+    setEpisode(prev => {
+      const newEpisode = prev + 1;
+      setMakespanHistory(history => [...history, { episode: newEpisode, makespan }]);
+      return newEpisode;
+    });
     setTotalReward(result.totalReward);
     
     if (bestMakespan === 0 || makespan < bestMakespan) {
@@ -88,6 +95,7 @@ const Index = () => {
     setBestMakespan(0);
     setCurrentSchedule(null);
     setQTableEntries([]);
+    setMakespanHistory([]);
     toast.info("Réinitialisation effectuée");
   };
 
@@ -150,6 +158,7 @@ const Index = () => {
           </div>
 
           <div className="lg:col-span-2 space-y-6">
+            <MakespanChart history={makespanHistory} />
             <GanttChart schedule={currentSchedule} numMachines={numMachines} />
             <QTableVisualization entries={qTableEntries} />
           </div>
