@@ -18,6 +18,11 @@ export interface ScheduleState {
   currentTime: number;
   completedOperations: Set<string>;
   productProgress: Map<number, number>; // productId -> next operation index
+  anomalies: {
+    orderViolations: number;
+    overlapViolations: number;
+    releaseTimeViolations: number;
+  };
 }
 
 export interface QTableEntry {
@@ -64,7 +69,7 @@ export class QLearningScheduler {
     return `${progress}|${machineStatus}`;
   }
 
-  // Get available operations that can be scheduled
+  // Get available operations that can be scheduled (NO CONSTRAINTS - allow all for learning)
   private getAvailableOperations(state: ScheduleState): Operation[] {
     const available: Operation[] = [];
     
@@ -73,40 +78,59 @@ export class QLearningScheduler {
       
       if (nextOpIndex < product.operations.length) {
         const operation = product.operations[nextOpIndex];
-        
-        // CONSTRAINT 0: Check if product is available (release time)
-        if (state.currentTime < product.releaseTime) {
-          continue; // Product not yet available
-        }
-        
-        // CONSTRAINT 1: Check if previous operation of the same product is completed
-        if (nextOpIndex > 0) {
-          const previousOp = product.operations[nextOpIndex - 1];
-          const previousOpSchedules = state.machineSchedules.get(previousOp.machineId) || [];
-          const previousOpSchedule = previousOpSchedules.find(
-            s => s.operation.productId === product.id && 
-                 s.operation.operationIndex === nextOpIndex - 1
-          );
-          
-          // Previous operation must be completed before current time
-          if (!previousOpSchedule || previousOpSchedule.endTime > state.currentTime) {
-            continue; // Skip this operation, previous not completed yet
-          }
-        }
-        
-        // CONSTRAINT 2: Check if machine is available at current time
-        const machineSchedule = state.machineSchedules.get(operation.machineId) || [];
-        const machineAvailableTime = machineSchedule.length > 0
-          ? Math.max(...machineSchedule.map(s => s.endTime))
-          : 0;
-        
-        if (machineAvailableTime <= state.currentTime) {
-          available.push(operation);
-        }
+        available.push(operation);
       }
     }
     
     return available;
+  }
+
+  // Detect anomalies in the schedule
+  private detectAnomalies(state: ScheduleState, operation: Operation): {
+    orderViolation: boolean;
+    overlapViolation: boolean;
+    releaseTimeViolation: boolean;
+  } {
+    const product = this.products.find(p => p.id === operation.productId)!;
+    
+    // 1. Order violation: previous operation not completed
+    let orderViolation = false;
+    if (operation.operationIndex > 0) {
+      const previousOp = product.operations[operation.operationIndex - 1];
+      const previousOpSchedules = state.machineSchedules.get(previousOp.machineId) || [];
+      const previousOpSchedule = previousOpSchedules.find(
+        s => s.operation.productId === product.id && 
+             s.operation.operationIndex === operation.operationIndex - 1
+      );
+      
+      if (!previousOpSchedule || previousOpSchedule.endTime > state.currentTime) {
+        orderViolation = true;
+      }
+    }
+    
+    // 2. Overlap violation: product on multiple machines simultaneously
+    let overlapViolation = false;
+    const operationEndTime = state.currentTime + operation.duration;
+    
+    for (const [machineId, schedule] of state.machineSchedules) {
+      if (machineId === operation.machineId) continue;
+      
+      for (const scheduled of schedule) {
+        if (scheduled.operation.productId === operation.productId) {
+          // Check if there's time overlap
+          if (!(operationEndTime <= scheduled.startTime || state.currentTime >= scheduled.endTime)) {
+            overlapViolation = true;
+            break;
+          }
+        }
+      }
+      if (overlapViolation) break;
+    }
+    
+    // 3. Release time violation: product not yet available
+    const releaseTimeViolation = state.currentTime < product.releaseTime;
+    
+    return { orderViolation, overlapViolation, releaseTimeViolation };
   }
 
   // Encode action as string
@@ -163,12 +187,19 @@ export class QLearningScheduler {
       currentTime: state.currentTime,
       completedOperations: new Set(state.completedOperations),
       productProgress: new Map(state.productProgress),
+      anomalies: { ...state.anomalies },
     };
 
     // Deep copy machine schedules
     for (const [machineId, schedule] of state.machineSchedules) {
       newState.machineSchedules.set(machineId, [...schedule]);
     }
+
+    // Detect anomalies BEFORE applying the operation
+    const anomalies = this.detectAnomalies(state, operation);
+    if (anomalies.orderViolation) newState.anomalies.orderViolations++;
+    if (anomalies.overlapViolation) newState.anomalies.overlapViolations++;
+    if (anomalies.releaseTimeViolation) newState.anomalies.releaseTimeViolations++;
 
     const machineSchedule = newState.machineSchedules.get(operation.machineId) || [];
     const startTime = state.currentTime;
@@ -197,6 +228,24 @@ export class QLearningScheduler {
   ): number {
     let reward = 0;
 
+    // VERY NEGATIVE PENALTIES FOR ANOMALIES
+    const anomalyIncrease = {
+      orderViolations: newState.anomalies.orderViolations - oldState.anomalies.orderViolations,
+      overlapViolations: newState.anomalies.overlapViolations - oldState.anomalies.overlapViolations,
+      releaseTimeViolations: newState.anomalies.releaseTimeViolations - oldState.anomalies.releaseTimeViolations,
+    };
+
+    // Apply very harsh penalties for each type of anomaly
+    if (anomalyIncrease.orderViolations > 0) {
+      reward -= 5000; // Very negative penalty for order violation
+    }
+    if (anomalyIncrease.overlapViolations > 0) {
+      reward -= 5000; // Very negative penalty for overlap violation
+    }
+    if (anomalyIncrease.releaseTimeViolations > 0) {
+      reward -= 3000; // Very negative penalty for release time violation
+    }
+
     // Base reward: negative proportional to operation duration (encourage shorter times)
     reward -= operation.duration * 0.1;
 
@@ -206,7 +255,6 @@ export class QLearningScheduler {
       const progress = newState.productProgress.get(product.id) || 0;
       if (progress === product.operations.length) {
         // Product completed! Give priority-based bonus
-        // Priority 3 (highest) gets 500, Priority 2 gets 300, Priority 1 gets 150
         const priorityBonus = product.priority * 150 + 50;
         reward += priorityBonus;
         
@@ -238,6 +286,13 @@ export class QLearningScheduler {
       );
       // Reward inversely proportional to makespan
       reward += 1000 / makespan;
+      
+      // Additional bonus for zero anomalies
+      if (newState.anomalies.orderViolations === 0 && 
+          newState.anomalies.overlapViolations === 0 && 
+          newState.anomalies.releaseTimeViolations === 0) {
+        reward += 2000; // Big bonus for perfect schedule
+      }
     }
 
     // Penalty for machine idle time
@@ -288,6 +343,11 @@ export class QLearningScheduler {
       currentTime: 0,
       completedOperations: new Set(),
       productProgress: new Map(this.products.map(p => [p.id, 0])),
+      anomalies: {
+        orderViolations: 0,
+        overlapViolations: 0,
+        releaseTimeViolations: 0,
+      },
     };
 
     // Initialize machine schedules
@@ -381,6 +441,11 @@ export class QLearningScheduler {
       currentTime: 0,
       completedOperations: new Set(),
       productProgress: new Map(this.products.map(p => [p.id, 0])),
+      anomalies: {
+        orderViolations: 0,
+        overlapViolations: 0,
+        releaseTimeViolations: 0,
+      },
     };
 
     for (let i = 0; i < this.numMachines; i++) {
