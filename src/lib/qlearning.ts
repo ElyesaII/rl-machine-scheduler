@@ -304,12 +304,23 @@ export class QLearningScheduler {
       
       if (availableOps.length === 0) {
         // No operations available, advance time
+        const machineEventTimes = Array.from(state.machineSchedules.values()).flatMap(schedule =>
+          schedule
+            .filter(s => s.endTime > state.currentTime)
+            .map(s => s.endTime)
+        );
+        
+        // Also consider product release times
+        const productReleaseTimes = this.products
+          .filter(p => {
+            const nextOpIndex = state.productProgress.get(p.id) || 0;
+            return nextOpIndex < p.operations.length && p.releaseTime > state.currentTime;
+          })
+          .map(p => p.releaseTime);
+        
         const nextEventTime = Math.min(
-          ...Array.from(state.machineSchedules.values()).flatMap(schedule =>
-            schedule
-              .filter(s => s.endTime > state.currentTime)
-              .map(s => s.endTime)
-          ),
+          ...machineEventTimes,
+          ...productReleaseTimes,
           Infinity
         );
 
@@ -383,12 +394,23 @@ export class QLearningScheduler {
       const availableOps = this.getAvailableOperations(state);
       
       if (availableOps.length === 0) {
+        const machineEventTimes = Array.from(state.machineSchedules.values()).flatMap(schedule =>
+          schedule
+            .filter(s => s.endTime > state.currentTime)
+            .map(s => s.endTime)
+        );
+        
+        // Also consider product release times
+        const productReleaseTimes = this.products
+          .filter(p => {
+            const nextOpIndex = state.productProgress.get(p.id) || 0;
+            return nextOpIndex < p.operations.length && p.releaseTime > state.currentTime;
+          })
+          .map(p => p.releaseTime);
+        
         const nextEventTime = Math.min(
-          ...Array.from(state.machineSchedules.values()).flatMap(schedule =>
-            schedule
-              .filter(s => s.endTime > state.currentTime)
-              .map(s => s.endTime)
-          ),
+          ...machineEventTimes,
+          ...productReleaseTimes,
           Infinity
         );
 
