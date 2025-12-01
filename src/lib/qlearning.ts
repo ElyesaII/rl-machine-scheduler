@@ -9,6 +9,8 @@ export interface Product {
   id: number;
   name: string;
   operations: Operation[];
+  releaseTime: number; // Time when product becomes available
+  priority: number; // Priority level (1-3, where 3 is highest)
 }
 
 export interface ScheduleState {
@@ -71,6 +73,11 @@ export class QLearningScheduler {
       
       if (nextOpIndex < product.operations.length) {
         const operation = product.operations[nextOpIndex];
+        
+        // CONSTRAINT 0: Check if product is available (release time)
+        if (state.currentTime < product.releaseTime) {
+          continue; // Product not yet available
+        }
         
         // CONSTRAINT 1: Check if previous operation of the same product is completed
         if (nextOpIndex > 0) {
@@ -192,6 +199,29 @@ export class QLearningScheduler {
 
     // Base reward: negative proportional to operation duration (encourage shorter times)
     reward -= operation.duration * 0.1;
+
+    // Check if this operation completes a product
+    const product = this.products.find(p => p.id === operation.productId);
+    if (product) {
+      const progress = newState.productProgress.get(product.id) || 0;
+      if (progress === product.operations.length) {
+        // Product completed! Give priority-based bonus
+        // Priority 3 (highest) gets 500, Priority 2 gets 300, Priority 1 gets 150
+        const priorityBonus = product.priority * 150 + 50;
+        reward += priorityBonus;
+        
+        // Additional bonus inversely proportional to completion time
+        const completionTime = Math.max(
+          ...Array.from(newState.machineSchedules.values())
+            .flatMap(schedule => 
+              schedule
+                .filter(s => s.operation.productId === product.id)
+                .map(s => s.endTime)
+            )
+        );
+        reward += (1000 / completionTime) * product.priority;
+      }
+    }
 
     // Check if all operations are completed
     const allCompleted = this.products.every(product => {

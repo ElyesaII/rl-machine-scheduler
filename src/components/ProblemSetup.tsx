@@ -17,6 +17,8 @@ export const ProblemSetup = ({ onStart }: ProblemSetupProps) => {
     {
       id: 1,
       name: "Produit 1",
+      releaseTime: 0,
+      priority: 2,
       operations: [
         { productId: 1, machineId: 0, duration: 5, operationIndex: 0 },
         { productId: 1, machineId: 1, duration: 3, operationIndex: 1 },
@@ -31,6 +33,8 @@ export const ProblemSetup = ({ onStart }: ProblemSetupProps) => {
       {
         id: newId,
         name: `Produit ${newId}`,
+        releaseTime: 0,
+        priority: 2,
         operations: [
           { productId: newId, machineId: 0, duration: 5, operationIndex: 0 },
         ],
@@ -110,6 +114,16 @@ export const ProblemSetup = ({ onStart }: ProblemSetupProps) => {
     );
   };
 
+  const updateProduct = (
+    productId: number,
+    field: "releaseTime" | "priority",
+    value: number
+  ) => {
+    setProducts(
+      products.map(p => (p.id === productId ? { ...p, [field]: value } : p))
+    );
+  };
+
   const handleStart = () => {
     // Validation
     if (numMachines < 1) {
@@ -181,6 +195,41 @@ export const ProblemSetup = ({ onStart }: ProblemSetupProps) => {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3 p-3 bg-accent/20 rounded-lg">
+                    <div>
+                      <Label className="text-xs">Disponibilité (temps)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={product.releaseTime}
+                        onChange={e =>
+                          updateProduct(
+                            product.id,
+                            "releaseTime",
+                            parseInt(e.target.value) || 0
+                          )
+                        }
+                        className="h-8"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Priorité (1-3)</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={3}
+                        value={product.priority}
+                        onChange={e =>
+                          updateProduct(
+                            product.id,
+                            "priority",
+                            Math.min(3, Math.max(1, parseInt(e.target.value) || 1))
+                          )
+                        }
+                        className="h-8"
+                      />
+                    </div>
+                  </div>
                   {product.operations.map((op, opIndex) => (
                     <div
                       key={opIndex}
