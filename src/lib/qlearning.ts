@@ -108,10 +108,11 @@ export class QLearningScheduler {
       }
     }
     
-    // 2. Overlap violation: product on multiple machines simultaneously
+    // 2. Overlap violation: TWO TYPES
     let overlapViolation = false;
     const operationEndTime = state.currentTime + operation.duration;
     
+    // 2a. INTRA-PRODUCT: Same product on multiple machines simultaneously
     for (const [machineId, schedule] of state.machineSchedules) {
       if (machineId === operation.machineId) continue;
       
@@ -125,6 +126,18 @@ export class QLearningScheduler {
         }
       }
       if (overlapViolation) break;
+    }
+    
+    // 2b. INTER-PRODUCT: Multiple products on same machine simultaneously
+    if (!overlapViolation) {
+      const sameMachineSchedule = state.machineSchedules.get(operation.machineId) || [];
+      for (const scheduled of sameMachineSchedule) {
+        // Check if there's time overlap with ANY operation on this machine
+        if (!(operationEndTime <= scheduled.startTime || state.currentTime >= scheduled.endTime)) {
+          overlapViolation = true;
+          break;
+        }
+      }
     }
     
     // 3. Release time violation: product not yet available
@@ -337,7 +350,12 @@ export class QLearningScheduler {
   }
 
   // Run one episode of training
-  trainEpisode(): { finalState: ScheduleState; totalReward: number; steps: number } {
+  trainEpisode(): { 
+    finalState: ScheduleState; 
+    totalReward: number; 
+    steps: number;
+    anomalies: { orderViolations: number; overlapViolations: number; releaseTimeViolations: number };
+  } {
     let state: ScheduleState = {
       machineSchedules: new Map(),
       currentTime: 0,
@@ -417,7 +435,12 @@ export class QLearningScheduler {
       if (allCompleted) break;
     }
 
-    return { finalState: state, totalReward, steps };
+    return { 
+      finalState: state, 
+      totalReward, 
+      steps,
+      anomalies: state.anomalies
+    };
   }
 
   // Get Q-table as array for visualization

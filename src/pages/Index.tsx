@@ -4,6 +4,7 @@ import { GanttChart } from "@/components/GanttChart";
 import { QTableVisualization } from "@/components/QTableVisualization";
 import { TrainingControls } from "@/components/TrainingControls";
 import { MakespanChart } from "@/components/MakespanChart";
+import { AnomalyChart } from "@/components/AnomalyChart";
 import { Product, QLearningScheduler, ScheduleState } from "@/lib/qlearning";
 import { toast } from "sonner";
 import { Factory } from "lucide-react";
@@ -19,6 +20,13 @@ const Index = () => {
   const [qTableEntries, setQTableEntries] = useState<any[]>([]);
   const [isTraining, setIsTraining] = useState(false);
   const [makespanHistory, setMakespanHistory] = useState<{ episode: number; makespan: number }[]>([]);
+  const [anomalyHistory, setAnomalyHistory] = useState<{ 
+    episode: number; 
+    orderViolations: number; 
+    overlapViolations: number; 
+    releaseTimeViolations: number;
+    total: number;
+  }[]>([]);
   const trainingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [learningRate, setLearningRate] = useState(0.1);
@@ -42,6 +50,7 @@ const Index = () => {
     setCurrentSchedule(null);
     setQTableEntries([]);
     setMakespanHistory([]);
+    setAnomalyHistory([]);
     toast.success("Configuration chargée avec succès");
   };
 
@@ -54,6 +63,13 @@ const Index = () => {
     setEpisode(prev => {
       const newEpisode = prev + 1;
       setMakespanHistory(history => [...history, { episode: newEpisode, makespan }]);
+      setAnomalyHistory(history => [...history, { 
+        episode: newEpisode, 
+        orderViolations: result.anomalies.orderViolations,
+        overlapViolations: result.anomalies.overlapViolations,
+        releaseTimeViolations: result.anomalies.releaseTimeViolations,
+        total: result.anomalies.orderViolations + result.anomalies.overlapViolations + result.anomalies.releaseTimeViolations
+      }]);
       return newEpisode;
     });
     setTotalReward(result.totalReward);
@@ -96,6 +112,7 @@ const Index = () => {
     setCurrentSchedule(null);
     setQTableEntries([]);
     setMakespanHistory([]);
+    setAnomalyHistory([]);
     toast.info("Réinitialisation effectuée");
   };
 
@@ -159,6 +176,7 @@ const Index = () => {
 
           <div className="lg:col-span-2 space-y-6">
             <MakespanChart history={makespanHistory} />
+            <AnomalyChart history={anomalyHistory} />
             <GanttChart schedule={currentSchedule} numMachines={numMachines} />
             <QTableVisualization entries={qTableEntries} />
           </div>
